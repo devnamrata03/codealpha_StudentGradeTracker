@@ -1,1 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Ultimate Grade Tracker</title>
 
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+<!-- Chart -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Segoe UI;}
+
+body{
+  display:flex;
+  background:linear-gradient(135deg,#0f172a,#1e293b);
+  color:white;
+  transition:0.3s;
+}
+
+.light{background:#f1f5f9;color:black;}
+
+.sidebar{
+  width:230px;height:100vh;padding:20px;
+  background:rgba(255,255,255,0.05);
+  backdrop-filter:blur(12px);
+}
+
+.sidebar h2{text-align:center;margin-bottom:20px;}
+
+.sidebar button{
+  width:100%;margin:8px 0;padding:10px;
+  border:none;border-radius:8px;
+  background:#38bdf8;cursor:pointer;
+  transition:0.3s;
+}
+.sidebar button:hover{transform:scale(1.05);}
+
+.main{flex:1;padding:20px;}
+
+.card{
+  background:rgba(255,255,255,0.08);
+  padding:15px;margin:10px 0;
+  border-radius:12px;
+  animation:fade 0.5s;
+}
+
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+input{
+  padding:10px;margin:5px;
+  border-radius:8px;border:none;
+  width:100%;
+}
+
+.hidden{display:none;}
+
+.auth-box{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+  width:100%;
+}
+
+.auth-card{
+  background:rgba(255,255,255,0.08);
+  backdrop-filter:blur(12px);
+  padding:30px;
+  border-radius:15px;
+  width:300px;
+  text-align:center;
+  box-shadow:0 0 20px rgba(0,0,0,0.3);
+}
+
+.btn{
+  width:100%;
+  padding:10px;
+  margin-top:10px;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  font-weight:bold;
+  transition:0.3s;
+}
+
+.primary{background:linear-gradient(45deg,#38bdf8,#0ea5e9);color:white;}
+.secondary{background:rgba(255,255,255,0.1);color:white;}
+
+.btn:hover{transform:scale(1.05);}
+
+@media(max-width:768px){
+  body{flex-direction:column;}
+  .sidebar{width:100%;height:auto;display:flex;overflow:auto;}
+  .sidebar button{flex:1;}
+}
+</style>
+</head>
+
+<body>
+
+<div class="sidebar">
+<h2>🎓 Tracker</h2>
+<button onclick="show('dashboard')">Dashboard</button>
+<button onclick="show('add')">Add</button>
+<button onclick="show('admin')">Admin</button>
+<button onclick="toggleMode()">🌗 Mode</button>
+<button onclick="downloadPDF()">PDF</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div class="main">
+
+<!-- LOGIN UI -->
+<div id="auth" class="auth-box">
+  <div class="auth-card">
+    <h2>Welcome</h2>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+    <button class="btn primary" onclick="login()">Login</button>
+    <button class="btn secondary" onclick="signup()">Signup</button>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="hidden">
+<h2>📊 Dashboard</h2>
+<input id="search" placeholder="Search..." oninput="filterData()">
+<div id="stats"></div>
+<canvas id="chart"></canvas>
+</div>
+
+<!-- ADD -->
+<div id="add" class="hidden">
+<h2>Add Student</h2>
+<input id="name" placeholder="Name">
+<input id="marks" placeholder="Marks">
+<button class="btn primary" onclick="addData()">Save</button>
+<div id="list"></div>
+</div>
+
+<!-- ADMIN -->
+<div id="admin" class="hidden">
+<h2>Admin Panel</h2>
+<div id="adminData"></div>
+</div>
+
+</div>
+
+<script>
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAuO-jpWVo3aKjh-JRzOBj6bIVLA9_ieJ8",
+  authDomain: "student-grade-tracker-5e78d.firebaseapp.com",
+  projectId: "student-grade-tracker-5e78d"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let chart, allData=[];
+
+// Auth
+auth.onAuthStateChanged(user=>{
+  if(user){
+    authBox(false);
+    show("dashboard");
+    loadData();
+  } else {
+    authBox(true);
+  }
+});
+
+function authBox(show){
+  document.getElementById("auth").style.display = show ? "flex":"none";
+}
+
+// Login/Signup
+function signup(){ auth.createUserWithEmailAndPassword(email.value,password.value); }
+function login(){ auth.signInWithEmailAndPassword(email.value,password.value); }
+function logout(){ auth.signOut(); location.reload(); }
+
+// Navigation
+function show(id){
+  ["dashboard","add","admin"].forEach(sec=>{
+    document.getElementById(sec).classList.add("hidden");
+  });
+  document.getElementById(id).classList.remove("hidden");
+}
+
+// Add
+function addData(){
+  let user = auth.currentUser;
+
+  db.collection("students").add({
+    uid:user.uid,
+    name:name.value,
+    marks:Number(marks.value)
+  }).then(loadData);
+}
+
+// Load
+function loadData(){
+  let user = auth.currentUser;
+
+  db.collection("students").get().then(snap=>{
+    let html="",labels=[],data=[],total=0;
+    allData=[];
+
+    snap.forEach(doc=>{
+      let d=doc.data();
+
+      if(d.uid===user.uid || user.email==="admin@gmail.com"){
+        allData.push(d);
+
+        html+=`<div class="card">${d.name} - ${d.marks}
+        <button onclick="del('${doc.id}')">Delete</button></div>`;
+
+        labels.push(d.name);
+        data.push(d.marks);
+        total+=d.marks;
+      }
+    });
+
+    list.innerHTML=html;
+
+    stats.innerHTML=`
+    <div class="card">Total: ${labels.length}</div>
+    <div class="card">Avg: ${(total/labels.length||0).toFixed(2)}</div>
+    <div class="card">Highest: ${Math.max(...data,0)}</div>
+    `;
+
+    drawChart(labels,data);
+
+    if(user.email==="admin@gmail.com"){
+      adminData.innerHTML=html;
+    }
+  });
+}
+
+// Delete
+function del(id){
+  db.collection("students").doc(id).delete().then(loadData);
+}
+
+// Filter
+function filterData(){
+  let q = search.value.toLowerCase();
+  let html="";
+
+  allData.forEach(d=>{
+    if(d.name.toLowerCase().includes(q)){
+      html+=`<div class="card">${d.name} - ${d.marks}</div>`;
+    }
+  });
+
+  list.innerHTML=html;
+}
+
+// Chart
+function drawChart(labels,data){
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("chart"),{
+    type:"bar",
+    data:{labels:labels,datasets:[{data:data}]}
+  });
+}
+
+// Mode
+function toggleMode(){
+  document.body.classList.toggle("light");
+}
+
+// PDF
+function downloadPDF(){
+  const { jsPDF } = window.jspdf;
+  let doc = new jsPDF();
+  doc.text("Student Report",20,20);
+
+  allData.forEach((s,i)=>{
+    doc.text(`${s.name} - ${s.marks}`,20,30+i*10);
+  });
+
+  doc.save("report.pdf");
+}
+
+</script>
+
+</body>
+</html>
